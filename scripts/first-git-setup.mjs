@@ -17,7 +17,11 @@ try {
   await new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      [path.join(root, "scripts/manage.mjs"), "update", "--open"],
+      [
+        path.join(root, "scripts/manage.mjs"),
+        "update",
+        ...(process.argv.includes("--no-open") ? [] : ["--open"]),
+      ],
       { cwd: root, stdio: "inherit" },
     );
     child.on("error", reject);
