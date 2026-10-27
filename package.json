@@ -1,0 +1,47 @@
+{
+  "name": "yingke-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "dev:web": "next dev --hostname 0.0.0.0",
+    "worker": "tsx scripts/worker.ts",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "tsx --test tests/unit.test.ts",
+    "test:smoke": "tsx scripts/smoke.ts",
+    "test:browser": "tsx scripts/browser-test.ts",
+    "local:start": "node scripts/manage.mjs start --open",
+    "local:update": "node scripts/manage.mjs update --open",
+    "local:stop": "node scripts/manage.mjs stop",
+    "local:status": "node scripts/manage.mjs status",
+    "test:sync": "node --test tests/sync.test.mjs",
+    "test:managed": "node --test tests/managed.test.mjs",
+    "diagnose": "node scripts/diagnose-images.mjs"
+  },
+  "dependencies": {
+    "busboy": "1.6.0",
+    "lucide-react": "^0.577.0",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@types/busboy": "^1.5.4",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "prettier": "^3.9.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

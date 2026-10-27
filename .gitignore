@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.data/
+.env*
+!.env.example
+*.tsbuildinfo
+playwright-report/
+test-results/
+*.log
+*.zip
+*.tar.gz
+Connect-Yingke-Git*.cmd
+*.cmd.review.ps1

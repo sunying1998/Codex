@@ -1,0 +1,52 @@
+export type Asset = {
+  id: string;
+  project_id: string;
+  kind: "source" | "reference";
+  name: string;
+  path: string;
+  mime: string;
+  bytes: number;
+  status: "pending" | "ready" | "failed";
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  thumbnail: string | null;
+  error: string | null;
+  created_at: number;
+};
+export type Job = {
+  id: string;
+  project_id: string;
+  owner_id: string;
+  kind: "analyze" | "export";
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  progress: number;
+  payload: string;
+  output: string | null;
+  error: string | null;
+  cancel_requested: number;
+  attempts: number;
+  created_at: number;
+  updated_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+};
+export type Project = {
+  id: string;
+  owner_id: string;
+  title: string;
+  trim_start: number;
+  trim_end: number;
+  version: number;
+  created_at: number;
+  updated_at: number;
+};
+export type ProjectSummary = Project & {
+  asset_count: number;
+  thumbnail_id: string | null;
+  duration: number | null;
+  source_status: Asset["status"] | null;
+  active_jobs: number;
+};
+export type ProjectDetail = { project: Project; assets: Asset[]; jobs: Job[] };
+export type User = { id: string; username: string };
