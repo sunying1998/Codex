@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { git, REPOSITORY, BRANCH } from "./lib/project.mjs";
+import { DIRECT_GIT_OPTIONS } from "./lib/git-connection.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const target = process.argv[2],
@@ -13,9 +14,15 @@ if (!target || !output)
 if (!/^[A-Za-z]:[\\/]/.test(target)) throw new Error("需要 Windows 绝对路径。");
 const commit = git(root, ["rev-parse", "HEAD"]);
 const encoded = Buffer.from(target, "utf8").toString("base64");
-const source = `$ErrorActionPreference='Stop'; $stage=$null; $result=0;
+const directOptions = DIRECT_GIT_OPTIONS.map(
+  (value) => "'" + value.replaceAll("'", "''") + "'",
+).join(",");
+const source = `$ErrorActionPreference='Stop'; $stage=$null; $result=0; $script:DirectGit=$false;
 function Refresh-Path { $env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User')+';'+$env:Path };
 function Install-Tool($id,$upgrade) { if(!(Get-Command winget.exe -ErrorAction SilentlyContinue)){throw 'Install Microsoft App Installer / WinGet, then retry.'}; if($upgrade){ & winget.exe upgrade --id $id --source winget --exact --silent --accept-source-agreements --accept-package-agreements } else { & winget.exe install --id $id --source winget --exact --silent --accept-source-agreements --accept-package-agreements }; if($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010){throw ('Installation failed: '+$id)}; Refresh-Path };
+function Run-Git($gitArgs,$direct) { $items=@($gitArgs); if($direct){$items=@(${directOptions})+$items}; $info=New-Object Diagnostics.ProcessStartInfo; $info.FileName=(Get-Command git.exe -ErrorAction Stop).Source; $info.UseShellExecute=$false; $info.CreateNoWindow=$true; $info.RedirectStandardOutput=$true; $info.RedirectStandardError=$true; $info.Arguments=($items|ForEach-Object{('{0}{1}{0}' -f [char]34,[string]$_)}) -join ' '; if($direct){foreach($key in @($info.EnvironmentVariables.Keys)){if($key -match '^(HTTP|HTTPS|ALL)_PROXY$'){$info.EnvironmentVariables.Remove($key)}}}; $p=New-Object Diagnostics.Process; $p.StartInfo=$info; $p.Start()|Out-Null; $out=$p.StandardOutput.ReadToEndAsync(); $err=$p.StandardError.ReadToEndAsync(); if(!$p.WaitForExit(60000)){$p.Kill();$p.WaitForExit();$p.Dispose();return [pscustomobject]@{Code=124;Out='';Err='Git connection or authentication timed out.'}}; $value=[pscustomobject]@{Code=$p.ExitCode;Out=$out.Result;Err=$err.Result};$p.Dispose();return $value };
+function Safe-Error($text) { return ($text -replace '(https?://)[^\\s/@]+(:[^\\s/@]+)?@','$1[credentials]@') };
+function Use-Git($gitArgs) { $r=Run-Git $gitArgs $script:DirectGit; if($r.Code -ne 0 -and !$script:DirectGit -and $r.Err -match '(over proxy|proxy)[^\\r\\n]*(127\\.0\\.0\\.1|localhost|::1)' -and $r.Err -match '(Could not connect|Failed to connect|Connection refused)' -and $r.Err -notmatch '(authentication|certificate|SSL|TLS|CONNECT tunnel|returned error:|HTTP/)'){Write-Host 'Local proxy is unavailable. Trying a command-only direct connection; global proxy settings and TLS verification are preserved.'; $r=Run-Git $gitArgs $true; if($r.Code -ne 0){throw ('Local proxy is unavailable and direct GitHub access also failed. Start your existing proxy application or fix its endpoint, then retry. Direct result: '+(Safe-Error $r.Err))};$script:DirectGit=$true;$env:YINGKE_GIT_CONNECTION_MODE='direct'}; if($r.Code -ne 0){throw ('Git operation failed: '+(Safe-Error $r.Err))}; if($r.Err){Write-Host (Safe-Error $r.Err)};return $r.Out };
 try {
  $project=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'));
  if(!(Test-Path (Join-Path $project 'package.json'))){throw ('Project folder not found: '+$project)};
@@ -28,12 +35,12 @@ try {
  if(!(Get-Command git.exe -ErrorAction SilentlyContinue)){Install-Tool 'Git.Git' $false};
  if(!(Get-Command ffmpeg.exe -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe.exe -ErrorAction SilentlyContinue)){Install-Tool 'Gyan.FFmpeg' $false};
  Write-Host '[2/3] Fetching the verified installer commit from GitHub...';
+ Use-Git @('ls-remote','--exit-code','${REPOSITORY}','refs/heads/${BRANCH}')|Out-Null;
  $stage=Join-Path ([IO.Path]::GetTempPath()) ('yingke-git-'+[guid]::NewGuid().ToString('N'));
- & git.exe clone --single-branch --branch '${BRANCH}' '${REPOSITORY}' $stage;
- if($LASTEXITCODE -ne 0){throw 'GitHub clone failed. Complete Git Credential Manager browser sign-in if requested, then retry.'};
- & git.exe -C $stage fetch origin '${commit}'; if($LASTEXITCODE -ne 0){throw 'Could not fetch the pinned installer commit.'};
- & git.exe -C $stage switch -C '${BRANCH}' '${commit}'; if($LASTEXITCODE -ne 0){throw 'Could not select the verified commit in the temporary clone.'};
- $actual=& git.exe -C $stage rev-parse HEAD; if($actual -ne '${commit}'){throw 'Installer commit verification failed.'};
+ Use-Git @('clone','--single-branch','--branch','${BRANCH}','${REPOSITORY}',$stage)|Out-Null;
+ Use-Git @('-C',$stage,'fetch','origin','${commit}')|Out-Null;
+ Use-Git @('-C',$stage,'switch','-C','${BRANCH}','${commit}')|Out-Null;
+ $actual=Use-Git @('-C',$stage,'rev-parse','HEAD'); if($actual.Trim() -ne '${commit}'){throw 'Installer commit verification failed.'};
  Write-Host '[3/3] Backing up existing code, connecting Git, building and starting...';
  Write-Host 'Close the OLD launcher before migration. Existing accounts, media and local configuration are preserved.';
  & $node (Join-Path $stage 'scripts/first-git-setup.mjs') $project '${commit}';

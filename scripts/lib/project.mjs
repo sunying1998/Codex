@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { DatabaseSync, backup } from "node:sqlite";
+import { executeGit } from "./git-connection.mjs";
 
 export const REPOSITORY = "https://github.com/sunying1998/Codex.git";
 export const BRANCH = "main";
@@ -45,21 +46,7 @@ export function writeJson(file, value) {
   fs.renameSync(temp, file);
 }
 export function git(root, args) {
-  try {
-    return execFileSync("git", args, {
-      cwd: root,
-      encoding: "utf8",
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-  } catch (error) {
-    throw new Error(
-      "Git 操作失败：" +
-        String(error.stderr || error.message)
-          .replace(/(https?:\/\/)[^\s/@]+(?::[^\s/@]+)?@/g, "$1[认证信息]@")
-          .trim(),
-    );
-  }
+  return executeGit(root, args);
 }
 export function isAncestor(root, a, b) {
   try {
