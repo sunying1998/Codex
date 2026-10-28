@@ -12,7 +12,7 @@
     "worker": "tsx scripts/worker.ts",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "tsx --test tests/unit.test.ts",

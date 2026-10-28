@@ -17,6 +17,11 @@ import {
   waitWorkerStopped,
 } from "./project.mjs";
 import { stopRuntime } from "./control.mjs";
+import {
+  inspectGeneratedNextEnv,
+  prepareGeneratedNextEnv,
+  preserveGeneratedNextEnv,
+} from "./generated-next-env.mjs";
 
 export async function withUpdateLock(ctx, operation) {
   const file = path.join(ctx.updates, "operation.lock");
@@ -109,7 +114,7 @@ export async function updateProject(
     throw new Error("origin 不是预期仓库，未更改远端配置。");
   if (git(ctx.root, ["branch", "--show-current"]) !== branch)
     throw new Error("当前不在 " + branch + " 分支，更新已停止。");
-  assertClean(ctx.root);
+  assertClean(ctx.root, { allowGeneratedNextEnv: true });
   let expectedTip = null;
   if (prefetched) {
     const source = fs.realpathSync(prefetched.source);
@@ -141,20 +146,36 @@ export async function updateProject(
     after = git(ctx.root, ["rev-parse", "FETCH_HEAD"]);
   if (expectedTip && after !== expectedTip)
     throw new Error("安装器临时分支在校验期间发生变化，未合并代码。");
-  safeTree(ctx.root, after);
+  const files = safeTree(ctx.root, after);
+  const untracksNextEnv = !files.includes("next-env.d.ts");
   if (!isAncestor(ctx.root, before, after))
     throw new Error(
       "本地提交与远端分叉，更新已停止；不会重置、强推或丢弃提交。",
     );
-  assertClean(ctx.root);
+  assertClean(ctx.root, { allowGeneratedNextEnv: untracksNextEnv });
   await stop(ctx);
   await waitStopped(ctx);
+  assertClean(ctx.root, { allowGeneratedNextEnv: untracksNextEnv });
   let backup = null;
   if (before !== after) {
     backup = await backupState(ctx, "git-update", { before, after });
     git(ctx.root, ["update-ref", "refs/yingke/backups/" + Date.now(), before]);
     console.log("更新前备份：" + backup);
-    git(ctx.root, ["merge", "--ff-only", after]);
+    let generated = null;
+    if (untracksNextEnv && inspectGeneratedNextEnv(ctx.root)) {
+      generated = prepareGeneratedNextEnv(ctx.root, backup);
+      console.log(
+        "已备份 Next.js 自动生成的 next-env.d.ts，更新后由本机生成，不再参与 Git 同步。",
+      );
+    }
+    try {
+      git(ctx.root, ["merge", "--ff-only", after]);
+    } catch (error) {
+      if (generated && git(ctx.root, ["rev-parse", "HEAD"]) === before)
+        preserveGeneratedNextEnv(generated, true);
+      throw error;
+    }
+    if (generated) preserveGeneratedNextEnv(generated);
   }
   try {
     await build(ctx, { runNpm, commit: after });

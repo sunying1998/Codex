@@ -4,6 +4,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { DatabaseSync, backup } from "node:sqlite";
 import { executeGit } from "./git-connection.mjs";
+import { inspectGeneratedNextEnv } from "./generated-next-env.mjs";
 
 export const REPOSITORY = "https://github.com/sunying1998/Codex.git";
 export const BRANCH = "main";
@@ -78,7 +79,7 @@ export function remoteIdentity(value) {
     ? (match[1] + "/" + match[2].replace(/\.git$/, "")).toLowerCase()
     : value;
 }
-export function assertClean(root) {
+export function assertClean(root, { allowGeneratedNextEnv = false } = {}) {
   const changes = git(root, [
     "-c",
     "core.quotePath=false",
@@ -86,7 +87,14 @@ export function assertClean(root) {
     "--porcelain",
     "--untracked-files=no",
   ]);
-  if (changes)
+  const remaining =
+    allowGeneratedNextEnv && inspectGeneratedNextEnv(root)
+      ? changes
+          .split("\n")
+          .filter((line) => line.trim() !== "M next-env.d.ts")
+          .join("\n")
+      : changes;
+  if (remaining)
     throw new Error(
       "本地受 Git 管理的文件有修改。更新已停止，请先保存或处理这些修改；不会覆盖。\n改动文件（仅状态与文件名）：\n" +
         changes,

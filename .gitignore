@@ -11,3 +11,4 @@ test-results/
 *.tar.gz
 Connect-Yingke-Git*.cmd
 *.cmd.review.ps1
+next-env.d.ts

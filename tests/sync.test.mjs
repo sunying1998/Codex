@@ -16,6 +16,8 @@ import {
 } from "../scripts/lib/project.mjs";
 import { fileURLToPath } from "node:url";
 import { saveGitProfile } from "../scripts/lib/git-profile.mjs";
+import { writeAppTypeDeclarations } from "next/dist/lib/typescript/writeAppTypeDeclarations.js";
+import { assertClean } from "../scripts/lib/project.mjs";
 
 function command(root, args) {
   return execFileSync("git", args, {
@@ -106,6 +108,133 @@ function options(f, calls = []) {
     waitStopped: async () => {},
   };
 }
+
+async function legacyGeneratedFixture(t) {
+  const f = fixture(t);
+  await writeAppTypeDeclarations({
+    baseDir: f.author,
+    distDir: ".next",
+    imageImportsEnabled: true,
+    hasAppDir: true,
+    hasPagesDir: false,
+  });
+  f.legacy = commit(f.author, "legacy tracked Next.js output");
+  command(f.author, ["push", "-q"]);
+  command(f.source, ["fetch", "origin", "main"]);
+  command(f.source, ["merge", "--ff-only", "origin/main"]);
+  await adoptProject({
+    root: f.root,
+    source: f.source,
+    repository: f.remote,
+    expectedCommit: f.legacy,
+  });
+  await writeAppTypeDeclarations({
+    baseDir: f.root,
+    distDir: ".next/dev",
+    imageImportsEnabled: true,
+    hasAppDir: true,
+    hasPagesDir: false,
+  });
+  const current = fs
+    .readFileSync(path.join(f.root, "next-env.d.ts"), "utf8")
+    .replaceAll("\n", "\r\n");
+  write(f.root, "next-env.d.ts", current);
+  f.generated = Buffer.from(current);
+  return f;
+}
+
+function untrackGeneratedFixture(f) {
+  fs.appendFileSync(path.join(f.author, ".gitignore"), "next-env.d.ts\n");
+  command(f.author, ["rm", "--cached", "next-env.d.ts"]);
+  const next = commit(f.author, "generate next-env locally");
+  command(f.author, ["push", "-q"]);
+  return next;
+}
+
+test("legacy Next.js dev declarations migrate with an exact backup and remain ignored across dev/build regeneration", async (t) => {
+  const f = await legacyGeneratedFixture(t),
+    next = untrackGeneratedFixture(f),
+    calls = [];
+  const result = await updateProject(f.ctx, options(f, calls));
+  assert.equal(result.after, next);
+  assert.deepEqual(
+    fs.readFileSync(
+      path.join(result.backup, "generated-next-env/next-env.d.ts"),
+    ),
+    f.generated,
+  );
+  assert.deepEqual(
+    fs.readFileSync(path.join(f.root, "next-env.d.ts")),
+    f.generated,
+  );
+  assert.equal(command(f.root, ["ls-files", "--", "next-env.d.ts"]), "");
+  assert.equal(
+    command(f.root, ["check-ignore", "next-env.d.ts"]),
+    "next-env.d.ts",
+  );
+  for (const distDir of [".next", ".next/dev"]) {
+    await writeAppTypeDeclarations({
+      baseDir: f.root,
+      distDir,
+      imageImportsEnabled: true,
+      hasAppDir: true,
+      hasPagesDir: false,
+    });
+    assert.doesNotThrow(() => assertClean(f.root));
+  }
+  assert.equal(
+    fs.readFileSync(path.join(f.root, ".data/media/original.bin"), "utf8"),
+    "irreplaceable media",
+  );
+  const repeated = [];
+  await updateProject(f.ctx, options(f, repeated));
+  assert.deepEqual(repeated, ["stop"]);
+});
+
+test("custom declaration content, staged declarations and other source edits stop before generated-file migration", async (t) => {
+  for (const kind of ["custom", "staged", "source"]) {
+    const f = await legacyGeneratedFixture(t);
+    untrackGeneratedFixture(f);
+    if (kind === "custom")
+      fs.appendFileSync(
+        path.join(f.root, "next-env.d.ts"),
+        "declare const personalType: string;\n",
+      );
+    if (kind === "staged") command(f.root, ["add", "next-env.d.ts"]);
+    if (kind === "source")
+      write(f.root, "src/value.txt", "personal source edit");
+    const original = fs.readFileSync(path.join(f.root, "next-env.d.ts")),
+      calls = [];
+    await assert.rejects(
+      updateProject(f.ctx, options(f, calls)),
+      /本地受 Git 管理/,
+    );
+    assert.deepEqual(calls, []);
+    assert.deepEqual(
+      fs.readFileSync(path.join(f.root, "next-env.d.ts")),
+      original,
+    );
+    assert.equal(command(f.root, ["rev-parse", "HEAD"]), f.legacy);
+  }
+});
+
+test("a failed merge restores the original generated file while preserving unrelated personal files", async (t) => {
+  const f = await legacyGeneratedFixture(t);
+  untrackGeneratedFixture(f);
+  write(f.author, "my-notes.txt", "remote collision");
+  commit(f.author, "collision");
+  command(f.author, ["push", "-q"]);
+  await assert.rejects(updateProject(f.ctx, options(f)), /Git 操作失败/);
+  assert.deepEqual(
+    fs.readFileSync(path.join(f.root, "next-env.d.ts")),
+    f.generated,
+  );
+  assert.equal(
+    fs.readFileSync(path.join(f.root, "my-notes.txt"), "utf8"),
+    "personal notes\n",
+  );
+  assert.equal(command(f.root, ["rev-parse", "HEAD"]), f.legacy);
+});
 
 test("first Git adoption backs up overlapping code and preserves account, config, media and unrelated files", async (t) => {
   const f = fixture(t),

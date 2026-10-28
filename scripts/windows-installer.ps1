@@ -121,10 +121,13 @@ try {
     if (!(Get-Command ffmpeg.exe -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe.exe -ErrorAction SilentlyContinue)) { Install-Tool 'Gyan.FFmpeg' $false }
     if (Test-Path -LiteralPath (Join-Path $project '.git')) {
         $changes = Use-Git @('--no-optional-locks', '-C', $project, '-c', 'core.quotePath=false', 'status', '--short', '--untracked-files=no')
-        if ($changes.Trim()) {
+        if (![string]::IsNullOrWhiteSpace($changes) -and $changes -notmatch '\A M next-env\.d\.ts\r?\n?\z') {
             Write-Host 'Tracked local changes (status and names only):'
             Write-Host $changes
             throw 'Local tracked files changed. No files were overwritten. Inspect these changes before updating.'
+        }
+        if ($changes -match '\A M next-env\.d\.ts\r?\n?\z') {
+            Write-Host 'Next.js generated next-env.d.ts changed. Its content will be validated and backed up before migration.'
         }
     }
     if ($proxy) {
