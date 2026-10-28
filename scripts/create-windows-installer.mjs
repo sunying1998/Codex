@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { git } from "./lib/project.mjs";
 import { DIRECT_GIT_OPTIONS } from "./lib/git-connection.mjs";
+import { writePowerShellLauncher } from "./lib/windows-launcher.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const [target, output, proxy = "", backend = ""] = process.argv.slice(2);
@@ -36,23 +37,7 @@ for (const [key, value] of Object.entries({
 }))
   source = source.replaceAll("@@" + key + "@@", value);
 if (/@@[A-Z_]+@@/.test(source)) throw new Error("安装器模板未完成替换。");
-// Read the embedded, reviewable script from this file to avoid cmd.exe's 8191-character limit.
-const marker = "# YINGKE-POWERSHELL-PAYLOAD";
-const command =
-  "$s=[IO.File]::ReadAllText($env:YINGKE_INSTALLER);$m='" +
-  marker +
-  "';&([scriptblock]::Create($s.Substring($s.LastIndexOf($m)+$m.Length)))";
-const header =
-  '@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "YINGKE_INSTALLER=%~f0"\r\npowershell.exe -NoLogo -NoProfile -Command "' +
-  command +
-  '"\r\nexit /b %errorlevel%\r\n';
-fs.mkdirSync(path.dirname(path.resolve(output)), { recursive: true });
-fs.writeFileSync(
-  output,
-  header + marker + "\r\n" + source.replace(/\r?\n/g, "\r\n"),
-  "ascii",
-);
-fs.writeFileSync(output + ".review.ps1", source, "utf8");
+writePowerShellLauncher(output, source);
 console.log(
   "已生成固定提交 " + commit.slice(0, 12) + " 的一次性 Git 接入入口：" + output,
 );

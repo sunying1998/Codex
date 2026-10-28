@@ -119,6 +119,14 @@ try {
     if ($v -notmatch '^v([0-9]+)' -or [int]$Matches[1] -lt 24) { throw 'Node.js 24+ is required. Restart this launcher after installation.' }
     if (!(Get-Command git.exe -ErrorAction SilentlyContinue)) { Install-Tool 'Git.Git' $false }
     if (!(Get-Command ffmpeg.exe -ErrorAction SilentlyContinue) -or !(Get-Command ffprobe.exe -ErrorAction SilentlyContinue)) { Install-Tool 'Gyan.FFmpeg' $false }
+    if (Test-Path -LiteralPath (Join-Path $project '.git')) {
+        $changes = Use-Git @('--no-optional-locks', '-C', $project, '-c', 'core.quotePath=false', 'status', '--short', '--untracked-files=no')
+        if ($changes.Trim()) {
+            Write-Host 'Tracked local changes (status and names only):'
+            Write-Host $changes
+            throw 'Local tracked files changed. No files were overwritten. Inspect these changes before updating.'
+        }
+    }
     if ($proxy) {
         Write-Host ('Using HTTP proxy ' + $proxy + ' for this process only; global settings unchanged.')
         $endpoint = [uri]$proxy

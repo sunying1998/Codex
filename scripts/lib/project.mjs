@@ -79,9 +79,17 @@ export function remoteIdentity(value) {
     : value;
 }
 export function assertClean(root) {
-  if (git(root, ["status", "--porcelain", "--untracked-files=no"]))
+  const changes = git(root, [
+    "-c",
+    "core.quotePath=false",
+    "status",
+    "--porcelain",
+    "--untracked-files=no",
+  ]);
+  if (changes)
     throw new Error(
-      "本地受 Git 管理的文件有修改。更新已停止，请先保存或处理这些修改；不会覆盖。",
+      "本地受 Git 管理的文件有修改。更新已停止，请先保存或处理这些修改；不会覆盖。\n改动文件（仅状态与文件名）：\n" +
+        changes,
     );
 }
 export function protectedPath(file) {
