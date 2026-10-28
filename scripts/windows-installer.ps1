@@ -75,7 +75,7 @@ function Run-Git($gitArgs, $direct) {
 }
 function Safe-Error($text) { return ($text -replace '(https?://)[^\s/@]+(:[^\s/@]+)?@', '$1[credentials]@') }
 function Transient-Transfer($text) {
-    return ($text -match '(Recv failure: Connection was reset|schannel: failed to receive handshake|SSL_ERROR_SYSCALL|HTTP/2 stream .* (closed|reset)|HTTP/2 framing layer)' -and $text -notmatch '(authentication|certificate|CERT_|SEC_E_UNTRUSTED_ROOT|CONNECT tunnel|returned error:|HTTP/[^ ]+ [45][0-9][0-9])')
+    return ($text -match '(Recv failure: Connection was reset|schannel: failed to receive handshake|SSL_ERROR_SYSCALL|SSL routines::unexpected eof while reading|HTTP/2 stream .* (closed|reset)|HTTP/2 framing layer)' -and $text -notmatch '(authentication|certificate|CERT_|SEC_E_UNTRUSTED_ROOT|CONNECT tunnel|returned error:|HTTP/[^ ]+ [45][0-9][0-9])')
 }
 function Connect-Git($gitArgs, $direct) {
     $readTransfer = $gitArgs -contains 'ls-remote' -or $gitArgs -contains 'fetch'

@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { adoptProject } from "./lib/adopt.mjs";
+import { project } from "./lib/project.mjs";
+import { updateProject, withUpdateLock } from "./lib/update.mjs";
 
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = process.argv[2],
@@ -14,12 +16,18 @@ try {
     if (!fs.existsSync(path.join(root, "scripts/manage.mjs")))
       throw new Error("目录已有其他 Git 配置，请保留现场后交由本地任务处理。");
   } else await adoptProject({ root, source, expectedCommit });
+  const ctx = project(root);
+  await withUpdateLock(ctx, () =>
+    updateProject(ctx, {
+      prefetched: { source, expectedCommit },
+    }),
+  );
   await new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
       [
         path.join(root, "scripts/manage.mjs"),
-        "update",
+        "start",
         ...(process.argv.includes("--no-open") ? [] : ["--open"]),
       ],
       { cwd: root, stdio: "inherit" },
@@ -30,7 +38,7 @@ try {
         ? resolve()
         : reject(
             new Error(
-              "Git 已接入，但首次构建或启动未完成。可查看上方错误后再次点击 Update-Yingke.cmd。",
+              "Git 已接入，但启动未完成。可查看上方错误后再次点击 Start-Yingke.cmd；无需重复下载代码。",
             ),
           ),
     );

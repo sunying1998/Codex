@@ -3,7 +3,9 @@ import { execFileSync } from "node:child_process";
 export const HTTP1_GIT_OPTIONS = ["-c", "http.version=HTTP/1.1"];
 export function interruptedHandshake(message) {
   return (
-    /schannel: failed to receive handshake|SSL_ERROR_SYSCALL/i.test(message) &&
+    /schannel: failed to receive handshake|SSL_ERROR_SYSCALL|SSL routines::unexpected eof while reading/i.test(
+      message,
+    ) &&
     !/authentication|certificate|CERT_|SEC_E_UNTRUSTED_ROOT|CONNECT tunnel|returned error:\s*\d{3}|HTTP\/\S+\s+[45]\d{2}/i.test(
       message,
     )

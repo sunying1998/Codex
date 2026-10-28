@@ -7,7 +7,14 @@ import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { adoptProject } from "../scripts/lib/adopt.mjs";
 import { updateProject, withUpdateLock } from "../scripts/lib/update.mjs";
-import { project, hash, readJson } from "../scripts/lib/project.mjs";
+import {
+  project,
+  hash,
+  readJson,
+  writeJson,
+  REPOSITORY,
+} from "../scripts/lib/project.mjs";
+import { fileURLToPath } from "node:url";
 
 function command(root, args) {
   return execFileSync("git", args, {
@@ -192,6 +199,131 @@ test("fast-forward update saves recovery point, preserves data and reuses valid 
   const changed = [];
   await updateProject(f.ctx, options(f, changed));
   assert.deepEqual(changed, ["stop", "install", "build"]);
+});
+
+test("verified installer handoff updates from downloaded objects while the original remote is unavailable", async (t) => {
+  const f = fixture(t);
+  await adoptProject({
+    root: f.root,
+    source: f.source,
+    repository: f.remote,
+    expectedCommit: f.first,
+  });
+  write(f.author, "src/value.txt", "already downloaded newer version");
+  const second = commit(f.author, "second");
+  command(f.author, ["push", "-q"]);
+  command(f.source, ["fetch", "origin", "main"]);
+  fs.renameSync(f.remote, f.remote + ".offline");
+  const calls = [];
+  const result = await updateProject(f.ctx, {
+    ...options(f, calls),
+    prefetched: { source: f.source, expectedCommit: f.first },
+  });
+  assert.equal(result.after, second);
+  assert.deepEqual(calls, ["stop", "install", "build"]);
+  assert.equal(command(f.root, ["remote", "get-url", "origin"]), f.remote);
+  assert.equal(
+    fs.readFileSync(path.join(f.root, ".data/media/original.bin"), "utf8"),
+    "irreplaceable media",
+  );
+  assert.equal(
+    fs.readFileSync(path.join(f.root, ".env.local"), "utf8"),
+    "LOCAL_ONLY_TEST=keep-local\n",
+  );
+  const repeated = [];
+  await updateProject(f.ctx, {
+    ...options(f, repeated),
+    prefetched: { source: f.source, expectedCommit: f.first },
+  });
+  assert.deepEqual(repeated, ["stop"]);
+});
+
+test("installer handoff refuses mismatched or modified sources before stopping services", async (t) => {
+  const f = fixture(t);
+  await adoptProject({
+    root: f.root,
+    source: f.source,
+    repository: f.remote,
+    expectedCommit: f.first,
+  });
+  const calls = [];
+  await assert.rejects(
+    updateProject(f.ctx, {
+      ...options(f, calls),
+      prefetched: { source: f.source, expectedCommit: "0".repeat(40) },
+    }),
+    /固定提交校验失败/,
+  );
+  write(f.source, "src/value.txt", "modified installer");
+  await assert.rejects(
+    updateProject(f.ctx, {
+      ...options(f, calls),
+      prefetched: { source: f.source, expectedCommit: f.first },
+    }),
+    /本地受 Git 管理/,
+  );
+  assert.deepEqual(calls, []);
+  assert.equal(command(f.root, ["rev-parse", "HEAD"]), f.first);
+});
+
+test("first-setup CLI migrates and invokes start with all network Git protocols denied", (t) => {
+  const f = fixture(t);
+  const repositoryRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+  );
+  fs.cpSync(
+    path.join(repositoryRoot, "scripts"),
+    path.join(f.author, "scripts"),
+    { recursive: true },
+  );
+  write(
+    f.author,
+    "scripts/manage.mjs",
+    "import fs from 'node:fs'; fs.writeFileSync('.data/start-action.json',JSON.stringify({action:process.argv[2]}));\n",
+  );
+  const expected = commit(f.author, "installer command fixture");
+  command(f.author, ["push", "-q"]);
+  command(f.source, ["fetch", "origin", "main"]);
+  command(f.source, ["merge", "--ff-only", "origin/main"]);
+  command(f.source, ["remote", "set-url", "origin", REPOSITORY]);
+  // Reuse a prepared build so this command-level fixture never installs packages or launches a web service.
+  const lockHash = hash(
+    fs.readFileSync(path.join(f.author, "package-lock.json")),
+  );
+  const marker = { lockHash, nodeMajor: process.versions.node.split(".")[0] };
+  writeJson(path.join(f.ctx.runtime, "dependencies.json"), marker);
+  writeJson(path.join(f.ctx.runtime, "build.json"), {
+    ...marker,
+    commit: expected,
+  });
+  write(f.root, "node_modules/next/package.json", "{}");
+  write(f.root, "node_modules/tsx/package.json", "{}");
+  write(f.root, ".next/BUILD_ID", "fixture-build");
+  const output = execFileSync(
+    process.execPath,
+    [
+      path.join(f.source, "scripts/first-git-setup.mjs"),
+      f.root,
+      expected,
+      "--no-open",
+    ],
+    {
+      cwd: f.root,
+      encoding: "utf8",
+      env: { ...process.env, GIT_ALLOW_PROTOCOL: "file" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  assert.ok(output.includes("不重复连接 GitHub"));
+  assert.deepEqual(readJson(path.join(f.root, ".data/start-action.json")), {
+    action: "start",
+  });
+  assert.equal(command(f.root, ["rev-parse", "HEAD"]), expected);
+  assert.equal(
+    fs.readFileSync(path.join(f.root, ".data/media/original.bin"), "utf8"),
+    "irreplaceable media",
+  );
 });
 
 test("tracked local edits and divergent commits stop before services or user code are touched", async (t) => {

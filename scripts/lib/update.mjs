@@ -97,6 +97,7 @@ export async function updateProject(
     stop = stopRuntime,
     waitStopped = waitWorkerStopped,
     build = ensureBuild,
+    prefetched = null,
   } = {},
 ) {
   const top = fs.realpathSync(git(ctx.root, ["rev-parse", "--show-toplevel"]));
@@ -109,10 +110,37 @@ export async function updateProject(
   if (git(ctx.root, ["branch", "--show-current"]) !== branch)
     throw new Error("当前不在 " + branch + " 分支，更新已停止。");
   assertClean(ctx.root);
-  console.log("检查 GitHub 更新…");
-  git(ctx.root, ["fetch", "origin", branch]);
+  let expectedTip = null;
+  if (prefetched) {
+    const source = fs.realpathSync(prefetched.source);
+    if (
+      source === ctx.root ||
+      !/^[a-f0-9]{40}$/.test(prefetched.expectedCommit || "")
+    )
+      throw new Error("安装器临时仓库或固定提交参数不正确。");
+    if (
+      remoteIdentity(git(source, ["remote", "get-url", "origin"])) !==
+        remoteIdentity(repository) ||
+      git(source, ["branch", "--show-current"]) !== branch ||
+      git(source, ["rev-parse", "HEAD"]) !== prefetched.expectedCommit
+    )
+      throw new Error("安装器临时仓库来源、分支或固定提交校验失败。");
+    assertClean(source);
+    const ref = "refs/remotes/origin/" + branch;
+    expectedTip = git(source, ["rev-parse", "--verify", ref + "^{commit}"]);
+    if (!isAncestor(source, prefetched.expectedCommit, expectedTip))
+      throw new Error("安装器固定提交不在已下载分支的历史中。");
+    safeTree(source, expectedTip);
+    console.log("使用安装器已下载的 Git 版本，不重复连接 GitHub…");
+    git(ctx.root, ["fetch", "--no-tags", "--", source, ref]);
+  } else {
+    console.log("检查 GitHub 更新…");
+    git(ctx.root, ["fetch", "origin", branch]);
+  }
   const before = git(ctx.root, ["rev-parse", "HEAD"]),
     after = git(ctx.root, ["rev-parse", "FETCH_HEAD"]);
+  if (expectedTip && after !== expectedTip)
+    throw new Error("安装器临时分支在校验期间发生变化，未合并代码。");
   safeTree(ctx.root, after);
   if (!isAncestor(ctx.root, before, after))
     throw new Error(

@@ -82,6 +82,12 @@ test("Windows TLS receive interruption retries the same read operation without c
     ["fetch", "origin"],
     ["fetch", "origin"],
   ]);
+  assert.equal(
+    interruptedHandshake(
+      "TLS connect error: error:0A000126:SSL routines::unexpected eof while reading",
+    ),
+    true,
+  );
   for (const error of [
     "SSL certificate problem: SSL_ERROR_SYSCALL",
     "SEC_E_UNTRUSTED_ROOT: schannel: failed to receive handshake",
