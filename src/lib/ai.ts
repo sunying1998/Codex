@@ -1,14 +1,16 @@
 // Keep provider credentials and implementations on the server. No model is enabled yet.
+// Face-only v1. Outfit editing will have a separate input and preservation policy.
 export type ReplacementInput = {
   projectId: string;
   sourceAssetId: string;
-  referenceAssetIds: string[];
+  referenceAssetId: string;
   start: number;
   end: number;
-  mode: "face" | "head" | "outfit" | "body";
+  mode: "face";
 };
 export interface ReplacementProvider {
   id: string;
+  mode: "face";
   submit(
     input: ReplacementInput,
     signal: AbortSignal,
@@ -27,7 +29,8 @@ export interface ReplacementProvider {
 export const capabilities = {
   replacement: {
     available: false,
-    reason: "人物替换模型尚未接入；当前可上传、预览、选取片段并导出。",
+    mode: "face",
+    reason: "视频面部替换服务尚未接入；当前导出仍保留原人物。",
   },
   export: {
     available: true,

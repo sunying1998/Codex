@@ -164,7 +164,7 @@ try {
     page.getByRole("link", { name: "下载", exact: true }),
   ).toBeVisible({ timeout: 30_000 });
   await expect(
-    page.getByRole("button", { name: "人物替换准备中" }),
+    page.getByRole("button", { name: "面部替换准备中" }),
   ).toBeDisabled();
   await page.getByRole("button", { name: "参考照片", exact: true }).click();
   await page

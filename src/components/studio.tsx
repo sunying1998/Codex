@@ -617,7 +617,7 @@ export default function Studio() {
                       </div>
                       <div className="workflow-footer">
                         <Sparkles size={15} />
-                        <span>人物替换能力正在准备中</span>
+                        <span>面部替换能力正在准备中</span>
                         <span className="subtle-dot" />
                       </div>
                     </section>
@@ -1182,8 +1182,8 @@ function Settings({
                 <Sparkles size={19} />
               </span>
               <div>
-                <strong>AI 人物替换</strong>
-                <p>已预留服务端模型接口，接入真实模型并验证效果后开放</p>
+                <strong>AI 面部替换</strong>
+                <p>首版聚焦单人视频换脸，保留原片内容；接入并验证后开放</p>
               </div>
               <span className="pill">未接入</span>
             </div>

@@ -333,7 +333,7 @@ export default function Workbench({
             ) : (
               <>
                 <div className="reference-hint">
-                  添加人物多角度参考照片，用于后续人物替换。当前版本仅保存素材。
+                  保存人物参考照片。首版面部替换将使用一张清晰照片，当前仅保存素材。
                 </div>
                 <div className="reference-grid">
                   {references.map((asset) => (
@@ -581,22 +581,20 @@ export default function Workbench({
             <div className="ai-section-heading">
               <span>
                 <Sparkles size={15} />
-                AI 人物替换
+                AI 面部替换
               </span>
               <span className="pill">未接入</span>
             </div>
             <p className="ai-description">
-              从参考人物出发，探索画面的更多可能。模型接入并验证后开放。
+              首版只替换脸部，以保留头发、服装、背景、动作和原音轨为目标。服务接入并验证效果后开放。
             </p>
             <div className="ai-modes">
-              <span>面部替换</span>
-              <span>整个头部</span>
-              <span>服装修改</span>
-              <span>全身替换</span>
+              <span>首版 · 面部替换</span>
+              <span>后续 · 服装修改</span>
             </div>
             <button className="button ai-disabled" disabled>
               <Sparkles size={15} />
-              人物替换准备中
+              面部替换准备中
             </button>
             <p className="ai-footnote">当前导出保留原视频中的人物外貌。</p>
           </div>
