@@ -9,6 +9,7 @@ import {
   unreachableLocalProxy,
   DIRECT_GIT_OPTIONS,
   HTTP1_GIT_OPTIONS,
+  interruptedHandshake,
 } from "../scripts/lib/git-connection.mjs";
 
 const dead =
@@ -52,6 +53,67 @@ test("Git native URL matching applies empty proxy overrides while retaining TLS 
     ).trim();
     assert.equal(proxy, "");
     assert.equal(tls, "true");
+  }
+});
+test("Windows TLS receive interruption retries the same read operation without changing backend, proxy or trust", () => {
+  const environment = {
+    HTTPS_PROXY: "http://127.0.0.1:12450",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "http.sslBackend",
+    GIT_CONFIG_VALUE_0: "openssl",
+  };
+  const calls = [];
+  const result = executeGit("project", ["fetch", "origin"], {
+    platform: "win32",
+    environment,
+    log: () => {},
+    execute: (_program, args, options) => {
+      calls.push(args);
+      assert.equal(options.env, environment);
+      if (calls.length === 1)
+        throw failure(
+          "schannel: failed to receive handshake, SSL/TLS connection failed",
+        );
+      return "ok";
+    },
+  });
+  assert.equal(result, "ok");
+  assert.deepEqual(calls, [
+    ["fetch", "origin"],
+    ["fetch", "origin"],
+  ]);
+  for (const error of [
+    "SSL certificate problem: SSL_ERROR_SYSCALL",
+    "SEC_E_UNTRUSTED_ROOT: schannel: failed to receive handshake",
+    "HTTP/1.1 403 SSL_ERROR_SYSCALL",
+  ])
+    assert.equal(interruptedHandshake(error), false);
+});
+test("handshake interruptions remain bounded, do not retry clone/push/cloud/cancellation, and preserve TLS error meaning", () => {
+  for (const [platform, command, extra, expected] of [
+    ["win32", "fetch", {}, 2],
+    ["win32", "clone", {}, 1],
+    ["win32", "push", {}, 1],
+    ["linux", "fetch", {}, 1],
+    ["win32", "fetch", { signal: "SIGINT" }, 1],
+  ]) {
+    let count = 0;
+    assert.throws(
+      () =>
+        executeGit("project", [command, "origin"], {
+          platform,
+          log: () => {},
+          execute: () => {
+            count++;
+            throw failure(
+              "schannel: failed to receive handshake, SSL/TLS connection failed",
+              extra,
+            );
+          },
+        }),
+      /TLS 连接或证书校验失败/,
+    );
+    assert.equal(count, expected);
   }
 });
 test("Windows reset retries read-only negotiation with HTTP/1.1 on the same proxy route", () => {

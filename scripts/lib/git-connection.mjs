@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process";
 
 export const HTTP1_GIT_OPTIONS = ["-c", "http.version=HTTP/1.1"];
+export function interruptedHandshake(message) {
+  return (
+    /schannel: failed to receive handshake|SSL_ERROR_SYSCALL/i.test(message) &&
+    !/authentication|certificate|CERT_|SEC_E_UNTRUSTED_ROOT|CONNECT tunnel|returned error:\s*\d{3}|HTTP\/\S+\s+[45]\d{2}/i.test(
+      message,
+    )
+  );
+}
 export function connectionReset(message) {
   return (
     /Recv failure: Connection was reset|HTTP\/2 stream .* (?:closed|reset)|HTTP\/2 framing layer/i.test(
@@ -105,6 +113,16 @@ export function executeGit(
     } catch (error) {
       if (
         platform === "win32" &&
+        args.some((arg) => ["ls-remote", "fetch"].includes(arg)) &&
+        !error.signal &&
+        !error.killed &&
+        interruptedHandshake(String(error.stderr || error.message))
+      ) {
+        log("Git TLS 握手中断，沿用当前代理、TLS 后端和证书校验重试一次。");
+        return invoke(direct);
+      }
+      if (
+        platform === "win32" &&
         !http1 &&
         args.some((arg) => ["ls-remote", "fetch"].includes(arg)) &&
         !error.signal &&
@@ -153,7 +171,7 @@ export function executeGit(
             )
           ? "仓库访问或认证失败。"
           : /certificate|\bSSL\b|\bTLS\b/i.test(original)
-            ? "TLS 证书校验未通过，未关闭验证。"
+            ? "TLS 连接或证书校验失败，未关闭验证。"
             : "";
     throw new Error("Git 操作失败：" + hint + safeGitError(original));
   }
