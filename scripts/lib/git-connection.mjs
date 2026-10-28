@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readGitProfile, validateGitProfile } from "./git-profile.mjs";
 
 export const HTTP1_GIT_OPTIONS = ["-c", "http.version=HTTP/1.1"];
 export function interruptedHandshake(message) {
@@ -42,6 +43,21 @@ export const DIRECT_GIT_OPTIONS = [
   "-c",
   "http.https://github.com/sunying1998/Codex.git/.sslVerify=true",
 ];
+export function gitProfileOptions(profile) {
+  const result = [];
+  for (let index = 0; index < DIRECT_GIT_OPTIONS.length; index += 2) {
+    let setting = DIRECT_GIT_OPTIONS[index + 1];
+    if (setting.endsWith(".proxy=")) {
+      if (!profile.proxy) continue;
+      setting += profile.proxy;
+    }
+    result.push("-c", setting);
+  }
+  result.push("-c", "http.version=" + profile.httpVersion);
+  if (profile.tlsBackend)
+    result.push("-c", "http.sslBackend=" + profile.tlsBackend);
+  return result;
+}
 export function unreachableLocalProxy(message) {
   const text = String(message);
   if (
@@ -84,10 +100,23 @@ export function executeGit(
   const network = args.some((arg) =>
     ["fetch", "clone", "ls-remote", "pull", "push"].includes(arg),
   );
+  let profile = null;
+  if (platform === "win32" && network) {
+    profile =
+      environment.YINGKE_SETUP_GIT_PROXY ||
+      environment.YINGKE_SETUP_GIT_SSL_BACKEND
+        ? validateGitProfile({
+            version: 1,
+            proxy: environment.YINGKE_SETUP_GIT_PROXY || "",
+            tlsBackend: environment.YINGKE_SETUP_GIT_SSL_BACKEND || "",
+          })
+        : readGitProfile(root, environment);
+  }
   const selected =
     platform === "win32" &&
     network &&
-    environment.YINGKE_GIT_CONNECTION_MODE === "direct";
+    environment.YINGKE_GIT_CONNECTION_MODE === "direct" &&
+    !profile;
   let http1 =
     platform === "win32" &&
     network &&
@@ -97,7 +126,11 @@ export function executeGit(
       "git",
       [
         ...(direct ? DIRECT_GIT_OPTIONS : []),
-        ...(http1 ? HTTP1_GIT_OPTIONS : []),
+        ...(profile
+          ? gitProfileOptions(profile)
+          : http1
+            ? HTTP1_GIT_OPTIONS
+            : []),
         ...args,
       ],
       {
@@ -110,6 +143,28 @@ export function executeGit(
       },
     ).trim();
   const connect = (direct) => {
+    if (profile) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          return invoke(direct);
+        } catch (error) {
+          const message = String(error.stderr || error.message);
+          if (
+            attempt === 3 ||
+            !args.some((arg) => ["fetch", "ls-remote"].includes(arg)) ||
+            error.signal ||
+            error.killed ||
+            !(interruptedHandshake(message) || connectionReset(message))
+          )
+            throw error;
+          log(
+            "Git 传输中断，保留已保存的代理和 TLS 设置重试（" +
+              (attempt + 1) +
+              "/3）。",
+          );
+        }
+      }
+    }
     try {
       return invoke(direct);
     } catch (error) {
@@ -146,6 +201,7 @@ export function executeGit(
     const original = String(error.stderr || error.message);
     if (
       !selected &&
+      !profile &&
       platform === "win32" &&
       network &&
       !error.signal &&
@@ -167,7 +223,9 @@ export function executeGit(
     const hint = connectionReset(original)
       ? "连接被重置，尚不能确定是代理还是网络中断。请确认原代理程序正在运行，并检查浏览器能否打开仓库；浏览器可访问也不代表 Git 使用相同代理。"
       : unreachableLocalProxy(original)
-        ? "本机代理无法连接。"
+        ? profile
+          ? "已保存的本机代理无法连接，请先启动代理软件或检查本项目 git-connection.json 中的端口。"
+          : "本机代理无法连接。"
         : /authentication|could not read Username|repository not found/i.test(
               original,
             )

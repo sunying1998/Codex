@@ -15,6 +15,7 @@ import {
   REPOSITORY,
 } from "../scripts/lib/project.mjs";
 import { fileURLToPath } from "node:url";
+import { saveGitProfile } from "../scripts/lib/git-profile.mjs";
 
 function command(root, args) {
   return execFileSync("git", args, {
@@ -165,6 +166,13 @@ test("fast-forward update saves recovery point, preserves data and reuses valid 
     repository: f.remote,
     expectedCommit: f.first,
   });
+  const connection = {
+    version: 1,
+    proxy: "http://127.0.0.1:12450",
+    tlsBackend: "openssl",
+    httpVersion: "HTTP/1.1",
+  };
+  saveGitProfile(f.root, connection);
   write(f.author, "src/value.txt", "version two\n");
   const second = commit(f.author, "second");
   command(f.author, ["push", "-q"]);
@@ -173,6 +181,14 @@ test("fast-forward update saves recovery point, preserves data and reuses valid 
   assert.equal(result.before, f.first);
   assert.equal(result.after, second);
   assert.ok(result.backup);
+  assert.deepEqual(
+    readJson(path.join(result.backup, "git-connection.json")),
+    connection,
+  );
+  assert.deepEqual(
+    readJson(path.join(f.ctx.data, "git-connection.json")),
+    connection,
+  );
   assert.deepEqual(calls, ["stop", "install", "build"]);
   assert.equal(
     fs.readFileSync(path.join(f.root, ".data/media/original.bin"), "utf8"),

@@ -221,6 +221,9 @@ export async function backupState(ctx, label, commits = {}) {
     const source = path.join(ctx.root, name);
     if (fs.existsSync(source)) fs.copyFileSync(source, path.join(folder, name));
   }
+  const connectionFile = path.join(ctx.data, "git-connection.json");
+  if (fs.existsSync(connectionFile))
+    fs.copyFileSync(connectionFile, path.join(folder, "git-connection.json"));
   writeJson(path.join(folder, "version.json"), {
     ...commits,
     createdAt: new Date().toISOString(),

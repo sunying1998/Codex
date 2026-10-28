@@ -22,7 +22,7 @@
     "local:update": "node scripts/manage.mjs update --open",
     "local:stop": "node scripts/manage.mjs stop",
     "local:status": "node scripts/manage.mjs status",
-    "test:sync": "node --test tests/sync.test.mjs tests/git-connection.test.mjs tests/windows-installer.test.mjs",
+    "test:sync": "node --test tests/sync.test.mjs tests/git-connection.test.mjs tests/windows-installer.test.mjs tests/git-profile.test.mjs",
     "test:managed": "node --test tests/managed.test.mjs",
     "diagnose": "node scripts/diagnose-images.mjs"
   },

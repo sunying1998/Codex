@@ -23,6 +23,8 @@ function Install-Tool($id, $upgrade) {
     Refresh-Path
 }
 function Session-GitConfig {
+    $env:YINGKE_SETUP_GIT_PROXY = $proxy
+    $env:YINGKE_SETUP_GIT_SSL_BACKEND = $backend
     $settings = [ordered]@{}
     if ($proxy) {
         foreach ($key in @('http.proxy', 'remote.origin.proxy', 'http.https://github.com/.proxy', 'http.https://github.com/sunying1998/Codex.git.proxy', 'http.https://github.com/sunying1998/Codex.git/.proxy')) { $settings[$key] = $proxy }
@@ -142,8 +144,7 @@ try {
     Write-Host 'Close the OLD launcher before migration. Existing accounts, media and local configuration are preserved.'
     & $node (Join-Path $stage 'scripts/first-git-setup.mjs') $project $commit
     if ($LASTEXITCODE -ne 0) { throw 'Setup did not finish. Read the error above; data and recovery backups are retained.' }
-    if ($proxy -or $backend) { Write-Host 'READY. Keep using this proxy/TLS-specific launcher for updates.' -ForegroundColor Green }
-    else { Write-Host 'READY. Next time use Update-Yingke.cmd inside your project.' -ForegroundColor Green }
+    Write-Host 'READY. Next time use Update-Yingke.cmd inside your project. Proxy/TLS preferences are saved locally when provided.' -ForegroundColor Green
 } catch {
     $result = 1
     Write-Host ('ERROR: ' + $_.Exception.Message) -ForegroundColor Red
