@@ -8,6 +8,7 @@ import {
   executeGit,
   unreachableLocalProxy,
   DIRECT_GIT_OPTIONS,
+  HTTP1_GIT_OPTIONS,
 } from "../scripts/lib/git-connection.mjs";
 
 const dead =
@@ -52,6 +53,104 @@ test("Git native URL matching applies empty proxy overrides while retaining TLS 
     assert.equal(proxy, "");
     assert.equal(tls, "true");
   }
+});
+test("Windows reset retries read-only negotiation with HTTP/1.1 on the same proxy route", () => {
+  for (const command of ["ls-remote", "fetch"]) {
+    const environment = {
+      HTTPS_PROXY: "http://127.0.0.1:7890",
+      GIT_ASKPASS: "preserved",
+    };
+    const calls = [];
+    assert.equal(
+      executeGit("project", [command, "origin"], {
+        platform: "win32",
+        environment,
+        log: () => {},
+        execute: (_program, args, options) => {
+          calls.push(args);
+          assert.equal(options.env, environment);
+          if (calls.length === 1)
+            throw failure("fatal: Recv failure: Connection was reset");
+          return "ok";
+        },
+      }),
+      "ok",
+    );
+    assert.deepEqual(calls, [
+      [command, "origin"],
+      [...HTTP1_GIT_OPTIONS, command, "origin"],
+    ]);
+    assert.equal(environment.YINGKE_GIT_HTTP_VERSION, undefined);
+  }
+});
+test("HTTP/1.1 reset failure stops after one retry and gives connectivity guidance", () => {
+  let count = 0;
+  assert.throws(
+    () =>
+      executeGit("project", ["fetch", "origin"], {
+        platform: "win32",
+        log: () => {},
+        execute: () => {
+          count++;
+          throw failure("Recv failure: Connection was reset");
+        },
+      }),
+    /连接被重置/,
+  );
+  assert.equal(count, 2);
+});
+test("reset never retries clone, push, cancellation, cloud, certificate or policy failures", () => {
+  for (const [platform, command, message, extra] of [
+    ["win32", "clone", "Recv failure: Connection was reset", {}],
+    ["win32", "push", "Recv failure: Connection was reset", {}],
+    ["linux", "fetch", "Recv failure: Connection was reset", {}],
+    [
+      "win32",
+      "fetch",
+      "Recv failure: Connection was reset",
+      { signal: "SIGINT" },
+    ],
+    [
+      "win32",
+      "fetch",
+      "certificate error: Recv failure: Connection was reset",
+      {},
+    ],
+    ["win32", "fetch", "HTTP/2 403: Recv failure: Connection was reset", {}],
+  ]) {
+    let count = 0;
+    assert.throws(() =>
+      executeGit("project", [command, "origin"], {
+        platform,
+        log: () => {},
+        execute: () => {
+          count++;
+          throw failure(message, extra);
+        },
+      }),
+    );
+    assert.equal(count, 1, [platform, command, message].join(" "));
+  }
+});
+test("bootstrap HTTP/1.1 selection propagates to Windows clone without changing proxy settings", () => {
+  const environment = {
+    YINGKE_GIT_HTTP_VERSION: "HTTP/1.1",
+    HTTPS_PROXY: "existing",
+  };
+  executeGit("project", ["clone", "source", "target"], {
+    platform: "win32",
+    environment,
+    execute: (_program, args, options) => {
+      assert.deepEqual(args, [
+        ...HTTP1_GIT_OPTIONS,
+        "clone",
+        "source",
+        "target",
+      ]);
+      assert.equal(options.env, environment);
+      return "ok";
+    },
+  });
 });
 function failure(stderr, extra = {}) {
   return Object.assign(new Error("git failed"), {

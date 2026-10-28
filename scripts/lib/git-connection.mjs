@@ -1,5 +1,17 @@
 import { execFileSync } from "node:child_process";
 
+export const HTTP1_GIT_OPTIONS = ["-c", "http.version=HTTP/1.1"];
+export function connectionReset(message) {
+  return (
+    /Recv failure: Connection was reset|HTTP\/2 stream .* (?:closed|reset)|HTTP\/2 framing layer/i.test(
+      message,
+    ) &&
+    !/authentication|certificate|CONNECT tunnel|returned error:\s*\d{3}|HTTP\/\S+\s+[45]\d{2}/i.test(
+      message,
+    )
+  );
+}
+
 export const DIRECT_GIT_OPTIONS = [
   "-c",
   "http.proxy=",
@@ -66,17 +78,50 @@ export function executeGit(
     platform === "win32" &&
     network &&
     environment.YINGKE_GIT_CONNECTION_MODE === "direct";
+  let http1 =
+    platform === "win32" &&
+    network &&
+    environment.YINGKE_GIT_HTTP_VERSION === "HTTP/1.1";
   const invoke = (direct) =>
-    execute("git", [...(direct ? DIRECT_GIT_OPTIONS : []), ...args], {
-      cwd: root,
-      encoding: "utf8",
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: direct ? directEnvironment(environment) : environment,
-      ...(network ? { timeout: 60000 } : {}),
-    }).trim();
+    execute(
+      "git",
+      [
+        ...(direct ? DIRECT_GIT_OPTIONS : []),
+        ...(http1 ? HTTP1_GIT_OPTIONS : []),
+        ...args,
+      ],
+      {
+        cwd: root,
+        encoding: "utf8",
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+        env: direct ? directEnvironment(environment) : environment,
+        ...(network ? { timeout: 60000 } : {}),
+      },
+    ).trim();
+  const connect = (direct) => {
+    try {
+      return invoke(direct);
+    } catch (error) {
+      if (
+        platform === "win32" &&
+        !http1 &&
+        args.some((arg) => ["ls-remote", "fetch"].includes(arg)) &&
+        !error.signal &&
+        !error.killed &&
+        connectionReset(String(error.stderr || error.message))
+      ) {
+        log(
+          "Git 连接被重置，沿用当前网络路径，以 HTTP/1.1 重试一次。代理配置及 TLS 校验保持不变。",
+        );
+        http1 = true;
+        return invoke(direct);
+      }
+      throw error;
+    }
+  };
   try {
-    return invoke(selected);
+    return connect(selected);
   } catch (error) {
     const original = String(error.stderr || error.message);
     if (
@@ -91,7 +136,7 @@ export function executeGit(
         "本机代理未响应，尝试仅对本次 Git 命令使用直连；保留全局代理配置及 TLS 校验。",
       );
       try {
-        return invoke(true);
+        return connect(true);
       } catch (directError) {
         throw new Error(
           "本机代理无法连接，GitHub 直连也未成功。请启动你原来使用的代理程序或修正其地址后重试。\n直连结果：" +
@@ -99,15 +144,17 @@ export function executeGit(
         );
       }
     }
-    const hint = unreachableLocalProxy(original)
-      ? "本机代理无法连接。"
-      : /authentication|could not read Username|repository not found/i.test(
-            original,
-          )
-        ? "仓库访问或认证失败。"
-        : /certificate|\bSSL\b|\bTLS\b/i.test(original)
-          ? "TLS 证书校验未通过，未关闭验证。"
-          : "";
+    const hint = connectionReset(original)
+      ? "连接被重置，尚不能确定是代理还是网络中断。请确认原代理程序正在运行，并检查浏览器能否打开仓库；浏览器可访问也不代表 Git 使用相同代理。"
+      : unreachableLocalProxy(original)
+        ? "本机代理无法连接。"
+        : /authentication|could not read Username|repository not found/i.test(
+              original,
+            )
+          ? "仓库访问或认证失败。"
+          : /certificate|\bSSL\b|\bTLS\b/i.test(original)
+            ? "TLS 证书校验未通过，未关闭验证。"
+            : "";
     throw new Error("Git 操作失败：" + hint + safeGitError(original));
   }
 }
